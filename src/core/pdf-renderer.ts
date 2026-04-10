@@ -37,18 +37,22 @@ export async function renderPageToCanvas(
   return { canvas, width: canvas.width, height: canvas.height };
 }
 
+export async function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('Failed to convert canvas to blob'))),
+      'image/png',
+    );
+  });
+}
+
 export async function renderPageToBlob(
   pdfDoc: PdfDoc,
   pageNum: number,
   targetDpi: number,
 ): Promise<{ blob: Blob; width: number; height: number }> {
   const { canvas, width, height } = await renderPageToCanvas(pdfDoc, pageNum, targetDpi);
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('Failed to convert canvas to blob'))),
-      'image/png',
-    );
-  });
+  const blob = await canvasToBlob(canvas);
   // Release canvas memory immediately — the blob holds the compressed data
   canvas.width = 0;
   canvas.height = 0;

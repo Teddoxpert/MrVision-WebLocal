@@ -20,9 +20,10 @@ export interface PipelineOptions {
   dpi: number;
   downsample: boolean;
   engine: OcrEngine;
+  preprocess: boolean;
 }
 
-export type PageStatus = 'pending' | 'rendering' | 'ocr' | 'done' | 'error';
+export type PageStatus = 'pending' | 'rendering' | 'preprocess' | 'ocr' | 'done' | 'error';
 
 export interface ProgressCallback {
   onLog: (message: string) => void;

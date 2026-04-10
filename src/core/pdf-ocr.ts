@@ -1,6 +1,7 @@
-import { loadPdf, renderPageToBlob, renderPageToCanvas } from './pdf-renderer.js';
-import { initWorkerPool, ocrPage, destroyWorkerPool, isMobile } from './worker-pool.js';
+import { loadPdf, renderPageToBlob, renderPageToCanvas, canvasToBlob } from './pdf-renderer.js';
+import { initWorkerPool, ocrPage, destroyWorkerPool, getMaxConcurrency } from './worker-pool.js';
 import { initNeuralOcr, neuralOcrPage, destroyNeuralOcr } from './neural-ocr.js';
+import { preprocessPageImage } from './gpu-preprocess.js';
 import { buildSearchablePdf } from './pdf-builder.js';
 import { estimateTime, formatElapsed } from '../utils/time.js';
 import { formatFileSize } from '../utils/file.js';
@@ -95,9 +96,24 @@ export async function ocrPdf(
 
       if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
 
+      // Optional preprocessing (defensive — never blocks OCR)
+      let ocrCanvas = canvas;
+      if (options.preprocess) {
+        progress.onPageStatus(pageNum, 'preprocess');
+        try {
+          const pp = await preprocessPageImage(canvas, 0.5);
+          ocrCanvas = pp.canvas;
+          progress.onLog(`Page ${pageNum}: preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
+        } catch (err) {
+          progress.onLog(`Page ${pageNum}: preprocessing failed, using original image`);
+        }
+      }
+
+      if (cancelled) { canvas.width = 0; if (ocrCanvas !== canvas) ocrCanvas.width = 0; break; }
+
       progress.onPageStatus(pageNum, 'ocr');
       try {
-        const result = await neuralOcrPage(canvas, pageNum);
+        const result = await neuralOcrPage(ocrCanvas, pageNum);
         result.imageWidth = width;
         result.imageHeight = height;
         results.set(pageNum, result);
@@ -110,6 +126,7 @@ export async function ocrPdf(
       // Release canvas memory immediately
       canvas.width = 0;
       canvas.height = 0;
+      if (ocrCanvas !== canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
 
       completed++;
       progress.onPageStatus(pageNum, results.has(pageNum) ? 'done' : 'error');
@@ -125,7 +142,7 @@ export async function ocrPdf(
     // We keep at most `maxInFlight` OCR jobs pending to bound memory.
     // On mobile: 1 page at a time to avoid memory crashes.
     // On desktop: up to 4 pages in flight for parallelism.
-    const maxInFlight = isMobile() ? 1 : Math.min(cores, 4);
+    const maxInFlight = getMaxConcurrency();
     const pendingJobs: Promise<void>[] = [];
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
@@ -133,7 +150,40 @@ export async function ocrPdf(
 
       progress.onPageStatus(pageNum, 'rendering');
 
-      const { blob, width, height } = await renderPageToBlob(pdfDoc, pageNum, renderDpi);
+      let blob: Blob;
+      let width: number;
+      let height: number;
+
+      if (options.preprocess) {
+        // Render to canvas → preprocess → convert to blob
+        const rendered = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
+        width = rendered.width;
+        height = rendered.height;
+
+        if (cancelled) { rendered.canvas.width = 0; break; }
+
+        progress.onPageStatus(pageNum, 'preprocess');
+        let ocrCanvas = rendered.canvas;
+        try {
+          const pp = await preprocessPageImage(rendered.canvas, 0.5);
+          ocrCanvas = pp.canvas;
+          progress.onLog(`Page ${pageNum}: preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
+        } catch (err) {
+          progress.onLog(`Page ${pageNum}: preprocessing failed, using original image`);
+        }
+
+        blob = await canvasToBlob(ocrCanvas);
+        // Release canvases after blob conversion
+        rendered.canvas.width = 0;
+        rendered.canvas.height = 0;
+        if (ocrCanvas !== rendered.canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
+      } else {
+        // Standard path: render directly to blob (unchanged)
+        const rendered = await renderPageToBlob(pdfDoc, pageNum, renderDpi);
+        blob = rendered.blob;
+        width = rendered.width;
+        height = rendered.height;
+      }
 
       if (cancelled) break;
 

@@ -8,6 +8,7 @@ export function getOptions(): PipelineOptions {
     dpi: parseInt(dom.dpiSelect().value, 10),
     downsample: dom.downsampleCheck().checked,
     engine: dom.engineSelect().value as OcrEngine,
+    preprocess: dom.preprocessCheck().checked,
   };
 }
 

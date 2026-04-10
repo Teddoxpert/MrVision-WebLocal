@@ -8,6 +8,7 @@ export interface HardwareCapabilities {
   webnnNpu: boolean;
   webnnGpu: boolean;
   cores: number;
+  deviceMemory: number | null;
 }
 
 let cached: HardwareCapabilities | null = null;
@@ -16,6 +17,7 @@ export async function detectHardware(): Promise<HardwareCapabilities> {
   if (cached) return cached;
 
   const cores = navigator.hardwareConcurrency || 4;
+  const deviceMemory: number | null = (navigator as any).deviceMemory ?? null;
 
   // Probe WebGPU
   let webgpu = false;
@@ -71,7 +73,7 @@ export async function detectHardware(): Promise<HardwareCapabilities> {
     // Not available
   }
 
-  cached = { webgpu, webgpuAdapter, webnn, webnnNpu, webnnGpu, cores };
+  cached = { webgpu, webgpuAdapter, webnn, webnnNpu, webnnGpu, cores, deviceMemory };
   return cached;
 }
 
@@ -110,6 +112,9 @@ export function describeDevice(device: string): string {
 
 export function hardwareSummary(hw: HardwareCapabilities): string {
   const parts = [`${hw.cores} CPU cores`];
+  if (hw.deviceMemory != null) {
+    parts.push(`${hw.deviceMemory}GB RAM`);
+  }
   if (hw.webgpu) {
     parts.push(hw.webgpuAdapter ? `WebGPU (${hw.webgpuAdapter})` : 'WebGPU');
   }
