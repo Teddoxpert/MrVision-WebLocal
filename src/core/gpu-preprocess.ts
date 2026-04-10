@@ -76,6 +76,10 @@ async function initGpu(): Promise<boolean> {
   }
 }
 
+// Max pixels for GPU path — above this, GPU buffer allocation can fail or
+// produce corrupt output. 4M pixels ≈ 2000×2000, covers 150 DPI letter/A4.
+const GPU_MAX_PIXELS = 4_000_000;
+
 /**
  * Preprocess an image on the GPU: grayscale + contrast + threshold.
  * Returns a new canvas with the preprocessed image.
@@ -166,6 +170,8 @@ async function preprocessGpu(
 
 /**
  * CPU fallback: grayscale + contrast via Canvas 2D.
+ * Processes in-place on the source canvas to minimize memory usage
+ * (important for large 300 DPI pages).
  */
 function preprocessCpu(
   source: HTMLCanvasElement,
@@ -195,12 +201,9 @@ function preprocessCpu(
     // Alpha unchanged
   }
 
-  const outCanvas = document.createElement('canvas');
-  outCanvas.width = width;
-  outCanvas.height = height;
-  const outCtx = outCanvas.getContext('2d')!;
-  outCtx.putImageData(imageData, 0, 0);
-  return outCanvas;
+  // Write back in-place — no extra canvas needed
+  ctx.putImageData(imageData, 0, 0);
+  return source;
 }
 
 /**
@@ -215,17 +218,22 @@ export async function preprocessPageImage(
   source: HTMLCanvasElement,
   contrastStrength: number = 0.5,
 ): Promise<{ canvas: HTMLCanvasElement; usedGpu: boolean }> {
-  const hasGpu = await initGpu();
+  const totalPixels = source.width * source.height;
 
-  if (hasGpu) {
-    try {
-      const canvas = await preprocessGpu(source, contrastStrength);
-      return { canvas, usedGpu: true };
-    } catch {
-      // GPU failed, fall through to CPU
+  // Only use GPU for images within safe buffer limits
+  if (totalPixels <= GPU_MAX_PIXELS) {
+    const hasGpu = await initGpu();
+    if (hasGpu) {
+      try {
+        const canvas = await preprocessGpu(source, contrastStrength);
+        return { canvas, usedGpu: true };
+      } catch {
+        // GPU failed, fall through to CPU
+      }
     }
   }
 
+  // CPU in-place preprocessing (works at any resolution)
   const canvas = preprocessCpu(source, contrastStrength);
   return { canvas, usedGpu: false };
 }
