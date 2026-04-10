@@ -24,16 +24,14 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        working-directory: mrvision-web
         run: npm ci
 
       - name: Build
-        working-directory: mrvision-web
         run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: mrvision-web/dist
+          path: dist
 
   deploy:
     needs: build
