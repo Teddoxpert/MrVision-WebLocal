@@ -1,4 +1,4 @@
-import { loadPdf, renderPageToBlob, renderPageToCanvas, canvasToBlob } from './pdf-renderer.js';
+import { loadPdf, renderPageToCanvas, canvasToBlob } from './pdf-renderer.js';
 import { initWorkerPool, ocrPage, destroyWorkerPool, getMaxConcurrency } from './worker-pool.js';
 import { initNeuralOcr, neuralOcrPage, destroyNeuralOcr } from './neural-ocr.js';
 import { preprocessPageImage } from './gpu-preprocess.js';
@@ -96,24 +96,28 @@ export async function ocrPdf(
 
       if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
 
-      // Optional preprocessing (defensive — never blocks OCR)
-      let ocrCanvas = canvas;
+      // Optional preprocessing: apply in-place on the rendered canvas
       if (options.preprocess) {
         progress.onPageStatus(pageNum, 'preprocess');
         try {
           const pp = await preprocessPageImage(canvas, 0.5);
-          ocrCanvas = pp.canvas;
+          if (pp.canvas !== canvas) {
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(pp.canvas, 0, 0);
+            pp.canvas.width = 0;
+            pp.canvas.height = 0;
+          }
           progress.onLog(`Page ${pageNum}: preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
         } catch (err) {
           progress.onLog(`Page ${pageNum}: preprocessing failed, using original image`);
         }
       }
 
-      if (cancelled) { canvas.width = 0; if (ocrCanvas !== canvas) ocrCanvas.width = 0; break; }
+      if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
 
       progress.onPageStatus(pageNum, 'ocr');
       try {
-        const result = await neuralOcrPage(ocrCanvas, pageNum);
+        const result = await neuralOcrPage(canvas, pageNum);
         result.imageWidth = width;
         result.imageHeight = height;
         results.set(pageNum, result);
@@ -126,7 +130,6 @@ export async function ocrPdf(
       // Release canvas memory immediately
       canvas.width = 0;
       canvas.height = 0;
-      if (ocrCanvas !== canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
 
       completed++;
       progress.onPageStatus(pageNum, results.has(pageNum) ? 'done' : 'error');
@@ -150,40 +153,33 @@ export async function ocrPdf(
 
       progress.onPageStatus(pageNum, 'rendering');
 
-      let blob: Blob;
-      let width: number;
-      let height: number;
+      // Always render to canvas first
+      const { canvas, width, height } = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
 
+      if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
+
+      // Optional preprocessing: apply in-place on the rendered canvas
       if (options.preprocess) {
-        // Render to canvas → preprocess → convert to blob
-        const rendered = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
-        width = rendered.width;
-        height = rendered.height;
-
-        if (cancelled) { rendered.canvas.width = 0; break; }
-
         progress.onPageStatus(pageNum, 'preprocess');
-        let ocrCanvas = rendered.canvas;
         try {
-          const pp = await preprocessPageImage(rendered.canvas, 0.5);
-          ocrCanvas = pp.canvas;
+          const pp = await preprocessPageImage(canvas, 0.5);
+          if (pp.canvas !== canvas) {
+            // Draw preprocessed result back onto the original canvas
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(pp.canvas, 0, 0);
+            pp.canvas.width = 0;
+            pp.canvas.height = 0;
+          }
           progress.onLog(`Page ${pageNum}: preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
         } catch (err) {
           progress.onLog(`Page ${pageNum}: preprocessing failed, using original image`);
         }
-
-        blob = await canvasToBlob(ocrCanvas);
-        // Release canvases after blob conversion
-        rendered.canvas.width = 0;
-        rendered.canvas.height = 0;
-        if (ocrCanvas !== rendered.canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
-      } else {
-        // Standard path: render directly to blob (unchanged)
-        const rendered = await renderPageToBlob(pdfDoc, pageNum, renderDpi);
-        blob = rendered.blob;
-        width = rendered.width;
-        height = rendered.height;
       }
+
+      // Convert to blob — same path whether preprocessed or not
+      const blob = await canvasToBlob(canvas);
+      canvas.width = 0;
+      canvas.height = 0;
 
       if (cancelled) break;
 

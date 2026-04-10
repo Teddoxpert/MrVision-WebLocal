@@ -30,7 +30,7 @@ export async function ocrImage(
   progress.onStep('Recognizing text...');
 
   // Optional preprocessing (defensive — never blocks OCR)
-  let input: File | Blob = file;
+  let input: File | HTMLCanvasElement = file;
   if (preprocess) {
     try {
       progress.onStep('Enhancing image...');
@@ -43,28 +43,22 @@ export async function ocrImage(
       bitmap.close();
 
       const pp = await preprocessPageImage(canvas, 0.5);
+      if (pp.canvas !== canvas) {
+        // Draw preprocessed result back onto the original canvas
+        ctx.drawImage(pp.canvas, 0, 0);
+        pp.canvas.width = 0;
+        pp.canvas.height = 0;
+      }
       progress.onLog(`Image preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
       progress.onStep('Recognizing text...');
-
-      // Convert preprocessed canvas to blob for Tesseract
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        pp.canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('Blob conversion failed'))),
-          'image/png',
-        );
-      });
-      input = blob;
-
-      // Release canvases
-      canvas.width = 0; canvas.height = 0;
-      if (pp.canvas !== canvas) { pp.canvas.width = 0; pp.canvas.height = 0; }
+      input = canvas;
     } catch (err) {
       progress.onLog('Preprocessing failed, using original image');
       input = file;
     }
   }
 
-  const result = await worker.recognize(input);
+  const result = await worker.recognize(input as any);
   const text = result.data.text;
   const confidence = result.data.confidence;
 
@@ -92,21 +86,24 @@ async function neuralOcrImageWithPreprocess(
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
 
-  let ocrCanvas = canvas;
   try {
     const pp = await preprocessPageImage(canvas, 0.5);
-    ocrCanvas = pp.canvas;
+    if (pp.canvas !== canvas) {
+      const drawCtx = canvas.getContext('2d')!;
+      drawCtx.drawImage(pp.canvas, 0, 0);
+      pp.canvas.width = 0;
+      pp.canvas.height = 0;
+    }
     progress.onLog(`Image preprocessed on ${pp.usedGpu ? 'GPU' : 'CPU'}`);
   } catch {
     progress.onLog('Preprocessing failed, using original image');
   }
 
   progress.onStep('Recognizing text...');
-  const result = await neuralOcrPage(ocrCanvas, 1);
+  const result = await neuralOcrPage(canvas, 1);
 
   // Cleanup
   canvas.width = 0; canvas.height = 0;
-  if (ocrCanvas !== canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
   await destroyNeuralOcr();
 
   progress.onLog(`Done (${desc}).`);
