@@ -18,16 +18,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Install dependencies
+        working-directory: mrvision-web
         run: npm ci
+
       - name: Build
+        working-directory: mrvision-web
         run: npm run build
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: mrvision-web/dist
 
   deploy:
     needs: build
@@ -38,4 +44,3 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-

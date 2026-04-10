@@ -1,6 +1,7 @@
-import { loadPdf, renderPageToBlob, renderPageToCanvas } from './pdf-renderer.js';
+import { loadPdf, renderPageToCanvas } from './pdf-renderer.js';
 import { initWorkerPool, ocrPage, destroyWorkerPool } from './worker-pool.js';
 import { initNeuralOcr, neuralOcrPage, destroyNeuralOcr } from './neural-ocr.js';
+import { preprocessPageImage, isGpuPreprocessAvailable } from './gpu-preprocess.js';
 import { buildSearchablePdf } from './pdf-builder.js';
 import { estimateTime, formatElapsed } from '../utils/time.js';
 import { formatFileSize } from '../utils/file.js';
@@ -77,6 +78,13 @@ export async function ocrPdf(
   // and let the scheduler distribute across workers. Only keep a small
   // number of rendered images in flight (concurrency window).
   const renderDpi = options.dpi;
+
+  // Check GPU preprocessing availability
+  const gpuPreprocess = await isGpuPreprocessAvailable();
+  if (gpuPreprocess) {
+    progress.onLog('GPU preprocessing enabled (WebGPU compute shaders).');
+  }
+
   progress.onLog(`Rendering at ${renderDpi} DPI, OCR on ${engineDesc}...`);
   progress.onStep(`Processing 0/${totalPages} pages...`);
 
@@ -90,9 +98,20 @@ export async function ocrPdf(
       if (cancelled) break;
 
       progress.onPageStatus(pageNum, 'rendering');
-      const { canvas, width, height } = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
+      const rendered = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
+      const { width, height } = rendered;
 
-      if (cancelled) break;
+      if (cancelled) { rendered.canvas.width = 0; rendered.canvas.height = 0; break; }
+
+      // GPU preprocess if available
+      let canvas: HTMLCanvasElement;
+      if (gpuPreprocess) {
+        const pp = await preprocessPageImage(rendered.canvas, 0.5);
+        canvas = pp.canvas;
+        rendered.canvas.width = 0; rendered.canvas.height = 0;
+      } else {
+        canvas = rendered.canvas;
+      }
 
       progress.onPageStatus(pageNum, 'ocr');
       try {
@@ -130,8 +149,27 @@ export async function ocrPdf(
 
       progress.onPageStatus(pageNum, 'rendering');
 
-      // Render one page to blob, then release the canvas
-      const { blob, width, height } = await renderPageToBlob(pdfDoc, pageNum, renderDpi);
+      // Render page to canvas, preprocess on GPU, convert to blob
+      const { canvas, width, height } = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
+      if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
+
+      let ocrCanvas: HTMLCanvasElement;
+      if (gpuPreprocess) {
+        const pp = await preprocessPageImage(canvas, 0.5);
+        ocrCanvas = pp.canvas;
+      } else {
+        ocrCanvas = canvas;
+      }
+
+      // Convert to blob and release canvases
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        ocrCanvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+          'image/png',
+        );
+      });
+      canvas.width = 0; canvas.height = 0;
+      if (ocrCanvas !== canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
 
       if (cancelled) break;
 
