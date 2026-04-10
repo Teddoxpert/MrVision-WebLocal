@@ -6,6 +6,7 @@ import { isImageFile, isPdfFile, formatFileSize, downloadBlob, readFileAsArrayBu
 import { formatElapsed } from './utils/time.js';
 import { ocrImage } from './core/image-ocr.js';
 import { ocrPdf, cancelPipeline } from './core/pdf-ocr.js';
+import { isCacheApiAvailable, getCacheStatus, prefetchAssets } from './core/offline-cache.js';
 import type { PdfOcrResult } from './core/pdf-ocr.js';
 
 let selectedFile: File | null = null;
@@ -69,7 +70,7 @@ async function startOcr(): Promise<void> {
       // Image OCR path
       initProgress(1);
 
-      const text = await ocrImage(selectedFile, options.language, options.engine, progress);
+      const text = await ocrImage(selectedFile, options.language, options.engine, progress, options.preprocess);
 
       stopTimer();
       progress.onProgress(1, 1);
@@ -225,6 +226,53 @@ function init(): void {
     resetUI();
     fileInput.value = '';
   });
+
+  // Offline mode
+  if (isCacheApiAvailable()) {
+    show(dom.offlineSection());
+    updateCacheStatus();
+
+    dom.cacheBtn().addEventListener('click', async () => {
+      const lang = dom.langSelect().value;
+      const btn = dom.cacheBtn();
+      const status = dom.cacheStatus();
+
+      btn.disabled = true;
+      status.textContent = 'Downloading...';
+
+      try {
+        await prefetchAssets(lang, (completed, total) => {
+          const pct = Math.round((completed / total) * 100);
+          status.textContent = `Downloading... ${pct}%`;
+        });
+        status.textContent = `Cached for offline use (${lang})`;
+        btn.textContent = 'Re-download';
+      } catch (err) {
+        status.textContent = `Download failed: ${err instanceof Error ? err.message : err}`;
+      }
+      btn.disabled = false;
+    });
+
+    // Update cache status when language changes
+    dom.langSelect().addEventListener('change', updateCacheStatus);
+  }
+}
+
+async function updateCacheStatus(): Promise<void> {
+  const lang = dom.langSelect().value;
+  const status = dom.cacheStatus();
+  try {
+    const cached = await getCacheStatus(lang);
+    if (cached.worker && cached.core && cached.langData) {
+      status.textContent = `Ready for offline use (${lang})`;
+      dom.cacheBtn().textContent = 'Re-download';
+    } else {
+      status.textContent = 'Not cached for offline use';
+      dom.cacheBtn().textContent = 'Download for offline use';
+    }
+  } catch {
+    status.textContent = '';
+  }
 }
 
 init();

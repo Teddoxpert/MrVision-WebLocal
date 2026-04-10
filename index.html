@@ -77,6 +77,12 @@
               Downsample output
             </label>
           </div>
+          <div id="preprocess-option" class="option-row">
+            <label for="preprocess-check">
+              <input type="checkbox" id="preprocess-check" />
+              Enhance images before OCR (grayscale + contrast)
+            </label>
+          </div>
           <button id="start-btn" class="btn-primary">Start OCR</button>
         </section>
 
@@ -117,6 +123,13 @@
           <button id="reset-btn" class="btn-secondary">Process another file</button>
         </section>
       </main>
+
+      <section id="offline-section" class="offline-section hidden">
+        <div class="offline-row">
+          <span id="cache-status" class="cache-status"></span>
+          <button id="cache-btn" class="btn-secondary">Download for offline use</button>
+        </div>
+      </section>
 
       <footer class="footer">
         <p>All processing happens in your browser. Your files never leave your device.</p>

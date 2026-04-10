@@ -22,6 +22,8 @@ export const dom = {
   dpiOption: () => $('dpi-option') as HTMLElement,
   downsampleCheck: () => $('downsample-check') as HTMLInputElement,
   downsampleOption: () => $('downsample-option') as HTMLElement,
+  preprocessCheck: () => $('preprocess-check') as HTMLInputElement,
+  preprocessOption: () => $('preprocess-option') as HTMLElement,
   startBtn: () => $('start-btn') as HTMLButtonElement,
 
   // Progress
@@ -46,6 +48,11 @@ export const dom = {
   resultSize: () => $('result-size') as HTMLElement,
   downloadBtn: () => $('download-btn') as HTMLButtonElement,
   resetBtn: () => $('reset-btn') as HTMLButtonElement,
+
+  // Offline
+  offlineSection: () => $('offline-section') as HTMLElement,
+  cacheBtn: () => $('cache-btn') as HTMLButtonElement,
+  cacheStatus: () => $('cache-status') as HTMLElement,
 
   // Theme
   themeToggle: () => $('theme-toggle') as HTMLButtonElement,

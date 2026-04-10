@@ -7,15 +7,35 @@ export function isMobile(): boolean {
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
+/**
+ * Determine max concurrency based on device capabilities.
+ * Uses navigator.deviceMemory when available, falls back to UA-based detection.
+ */
+export function getMaxConcurrency(): number {
+  const cores = navigator.hardwareConcurrency || 4;
+  const mem: number | undefined = (navigator as any).deviceMemory;
+
+  if (mem != null) {
+    if (mem <= 2) return 1;
+    if (mem <= 4) return Math.min(cores, 2);
+    return Math.min(cores, 4);
+  }
+
+  // Fallback: UA-based mobile detection
+  return isMobile() ? 1 : Math.min(cores, 4);
+}
+
 export async function initWorkerPool(
   language: string,
   progress: ProgressCallback,
 ): Promise<void> {
   const cores = navigator.hardwareConcurrency || 4;
-  // On mobile devices, use only 1 worker to avoid memory pressure.
-  // Each Tesseract WASM worker uses ~15MB + the page image (~10-35MB).
-  const numWorkers = isMobile() ? 1 : cores;
-  progress.onLog(`Initializing ${numWorkers} OCR worker${numWorkers > 1 ? 's' : ''} (${language})${isMobile() ? ' [mobile mode]' : ''}...`);
+  // Adaptive worker count based on device memory and cores
+  const numWorkers = getMaxConcurrency();
+  const memLabel = (navigator as any).deviceMemory != null
+    ? ` [${(navigator as any).deviceMemory}GB RAM]`
+    : isMobile() ? ' [mobile mode]' : '';
+  progress.onLog(`Initializing ${numWorkers} OCR worker${numWorkers > 1 ? 's' : ''} (${language})${memLabel}...`);
   progress.onStep(`Loading OCR engine...`);
 
   scheduler = Tesseract.createScheduler();
