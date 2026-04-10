@@ -3,18 +3,25 @@ import type { OcrPageResult, OcrWord, ProgressCallback } from '../types/index.js
 
 let scheduler: Tesseract.Scheduler | null = null;
 
+export function isMobile(): boolean {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
 export async function initWorkerPool(
   language: string,
   progress: ProgressCallback,
 ): Promise<void> {
   const cores = navigator.hardwareConcurrency || 4;
-  progress.onLog(`Initializing ${cores} OCR workers (${language})...`);
+  // On mobile devices, use only 1 worker to avoid memory pressure.
+  // Each Tesseract WASM worker uses ~15MB + the page image (~10-35MB).
+  const numWorkers = isMobile() ? 1 : cores;
+  progress.onLog(`Initializing ${numWorkers} OCR worker${numWorkers > 1 ? 's' : ''} (${language})${isMobile() ? ' [mobile mode]' : ''}...`);
   progress.onStep(`Loading OCR engine...`);
 
   scheduler = Tesseract.createScheduler();
 
   const workerPromises: Promise<void>[] = [];
-  for (let i = 0; i < cores; i++) {
+  for (let i = 0; i < numWorkers; i++) {
     workerPromises.push(
       Tesseract.createWorker(language).then((worker) => {
         scheduler!.addWorker(worker);

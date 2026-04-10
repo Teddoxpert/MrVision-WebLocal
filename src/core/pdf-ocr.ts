@@ -1,5 +1,5 @@
 import { loadPdf, renderPageToBlob, renderPageToCanvas } from './pdf-renderer.js';
-import { initWorkerPool, ocrPage, destroyWorkerPool } from './worker-pool.js';
+import { initWorkerPool, ocrPage, destroyWorkerPool, isMobile } from './worker-pool.js';
 import { initNeuralOcr, neuralOcrPage, destroyNeuralOcr } from './neural-ocr.js';
 import { buildSearchablePdf } from './pdf-builder.js';
 import { estimateTime, formatElapsed } from '../utils/time.js';
@@ -123,7 +123,9 @@ export async function ocrPdf(
     // Render pages one at a time and feed blobs to the scheduler.
     // The scheduler distributes jobs across N workers internally.
     // We keep at most `maxInFlight` OCR jobs pending to bound memory.
-    const maxInFlight = Math.min(cores, 4); // Keep at most 4 pages in memory
+    // On mobile: 1 page at a time to avoid memory crashes.
+    // On desktop: up to 4 pages in flight for parallelism.
+    const maxInFlight = isMobile() ? 1 : Math.min(cores, 4);
     const pendingJobs: Promise<void>[] = [];
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
