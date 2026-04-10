@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MrVision</title>
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div class="header-left">
+          <h1 class="logo">MrVision</h1>
+          <span class="subtitle">Client-side OCR for images &amp; PDFs</span>
+        </div>
+        <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+          <span class="theme-icon">&#9790;</span>
+        </button>
+      </header>
+
+      <main class="main">
+        <!-- Drop Zone -->
+        <section id="drop-zone" class="drop-zone">
+          <div class="drop-zone-content">
+            <div class="drop-icon">&#128196;</div>
+            <p class="drop-text">Drop images or PDFs here, or click to browse</p>
+            <p class="drop-hint">Supports PNG, JPG, TIFF, BMP, WebP, PDF</p>
+            <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp" hidden />
+          </div>
+          <div id="file-info" class="file-info hidden">
+            <span id="file-name" class="file-name"></span>
+            <span id="file-size" class="file-size"></span>
+            <button id="clear-file" class="icon-btn" title="Clear file">&times;</button>
+          </div>
+        </section>
+
+        <!-- Options Panel -->
+        <section id="options-panel" class="options-panel hidden">
+          <div id="hw-status" class="hw-status"></div>
+          <div class="option-row">
+            <label for="engine-select">OCR Engine</label>
+            <select id="engine-select">
+              <option value="auto" selected>Auto (best available)</option>
+              <option value="cpu">CPU (Tesseract WASM)</option>
+              <option value="gpu">GPU (WebGPU)</option>
+              <option value="npu">NPU / Neural Engine (WebNN)</option>
+            </select>
+          </div>
+          <div class="option-row">
+            <label for="lang-select">Language</label>
+            <select id="lang-select">
+              <option value="eng" selected>English</option>
+              <option value="deu">German</option>
+              <option value="fra">French</option>
+              <option value="spa">Spanish</option>
+              <option value="ita">Italian</option>
+              <option value="por">Portuguese</option>
+              <option value="nld">Dutch</option>
+              <option value="ara">Arabic</option>
+              <option value="chi_sim">Chinese (Simplified)</option>
+              <option value="chi_tra">Chinese (Traditional)</option>
+              <option value="jpn">Japanese</option>
+              <option value="kor">Korean</option>
+              <option value="rus">Russian</option>
+            </select>
+          </div>
+          <div id="dpi-option" class="option-row">
+            <label for="dpi-select">Output DPI</label>
+            <select id="dpi-select">
+              <option value="150" selected>150 (fast, low memory)</option>
+              <option value="300">300 (higher quality, more memory)</option>
+            </select>
+          </div>
+          <div id="downsample-option" class="option-row">
+            <label for="downsample-check">
+              <input type="checkbox" id="downsample-check" checked />
+              Downsample output
+            </label>
+          </div>
+          <button id="start-btn" class="btn-primary">Start OCR</button>
+        </section>
+
+        <!-- Progress Section -->
+        <section id="progress-section" class="progress-section hidden">
+          <div class="progress-header">
+            <span id="progress-step" class="progress-step">Initializing...</span>
+            <span id="progress-time" class="progress-time">0s</span>
+          </div>
+          <div class="progress-bar-track">
+            <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+          </div>
+          <div id="progress-percent" class="progress-percent">0%</div>
+          <div id="page-grid" class="page-grid"></div>
+          <div id="log" class="log"></div>
+          <button id="cancel-btn" class="btn-cancel">Cancel</button>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results-section" class="results-section hidden">
+          <!-- Image OCR result -->
+          <div id="image-result" class="image-result hidden">
+            <h2>Extracted Text</h2>
+            <pre id="ocr-text" class="ocr-text"></pre>
+            <button id="copy-btn" class="btn-primary">Copy to clipboard</button>
+          </div>
+          <!-- PDF OCR result -->
+          <div id="pdf-result" class="pdf-result hidden">
+            <h2>Searchable PDF Ready</h2>
+            <div class="result-stats">
+              <span id="result-pages"></span>
+              <span id="result-time"></span>
+              <span id="result-confidence"></span>
+              <span id="result-size"></span>
+            </div>
+            <button id="download-btn" class="btn-primary">Download Searchable PDF</button>
+          </div>
+          <button id="reset-btn" class="btn-secondary">Process another file</button>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>All processing happens in your browser. Your files never leave your device.</p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
