@@ -103,14 +103,16 @@ export async function ocrPdf(
 
       if (cancelled) { rendered.canvas.width = 0; rendered.canvas.height = 0; break; }
 
-      // GPU preprocess if available
-      let canvas: HTMLCanvasElement;
+      // GPU preprocess if available (skip on failure)
+      let canvas = rendered.canvas;
       if (gpuPreprocess) {
-        const pp = await preprocessPageImage(rendered.canvas, 0.5);
-        canvas = pp.canvas;
-        rendered.canvas.width = 0; rendered.canvas.height = 0;
-      } else {
-        canvas = rendered.canvas;
+        try {
+          const pp = await preprocessPageImage(rendered.canvas, 0.5);
+          canvas = pp.canvas;
+          rendered.canvas.width = 0; rendered.canvas.height = 0;
+        } catch {
+          canvas = rendered.canvas;
+        }
       }
 
       progress.onPageStatus(pageNum, 'ocr');
@@ -149,15 +151,25 @@ export async function ocrPdf(
 
       progress.onPageStatus(pageNum, 'rendering');
 
-      // Render page to canvas, preprocess on GPU, convert to blob
+      // Render page to canvas, optionally preprocess on GPU, convert to blob
       const { canvas, width, height } = await renderPageToCanvas(pdfDoc, pageNum, renderDpi);
       if (cancelled) { canvas.width = 0; canvas.height = 0; break; }
 
-      let ocrCanvas: HTMLCanvasElement;
+      // GPU preprocessing: grayscale + contrast enhancement
+      // If it fails for any reason, use the original canvas
+      let ocrCanvas = canvas;
       if (gpuPreprocess) {
-        const pp = await preprocessPageImage(canvas, 0.5);
-        ocrCanvas = pp.canvas;
-      } else {
+        try {
+          const pp = await preprocessPageImage(canvas, 0.5);
+          ocrCanvas = pp.canvas;
+        } catch {
+          // GPU preprocessing failed, use original
+          ocrCanvas = canvas;
+        }
+      }
+
+      // If GPU canvas is invalid, fall back to original
+      if (!ocrCanvas.width || !ocrCanvas.height) {
         ocrCanvas = canvas;
       }
 
@@ -168,8 +180,8 @@ export async function ocrPdf(
           'image/png',
         );
       });
-      canvas.width = 0; canvas.height = 0;
       if (ocrCanvas !== canvas) { ocrCanvas.width = 0; ocrCanvas.height = 0; }
+      canvas.width = 0; canvas.height = 0;
 
       if (cancelled) break;
 
