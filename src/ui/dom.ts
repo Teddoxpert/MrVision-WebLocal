@@ -9,8 +9,7 @@ export const dom = {
   dropZone: () => $('drop-zone') as HTMLElement,
   fileInput: () => $('file-input') as HTMLInputElement,
   fileInfo: () => $('file-info') as HTMLElement,
-  fileName: () => $('file-name') as HTMLElement,
-  fileSize: () => $('file-size') as HTMLElement,
+  fileList: () => $('file-list') as HTMLUListElement,
   clearFile: () => $('clear-file') as HTMLButtonElement,
 
   // Options
@@ -28,6 +27,7 @@ export const dom = {
 
   // Progress
   progressSection: () => $('progress-section') as HTMLElement,
+  batchStatus: () => $('batch-status') as HTMLElement,
   progressStep: () => $('progress-step') as HTMLElement,
   progressTime: () => $('progress-time') as HTMLElement,
   progressBar: () => $('progress-bar') as HTMLElement,
@@ -38,15 +38,8 @@ export const dom = {
 
   // Results
   resultsSection: () => $('results-section') as HTMLElement,
-  imageResult: () => $('image-result') as HTMLElement,
-  pdfResult: () => $('pdf-result') as HTMLElement,
-  ocrText: () => $('ocr-text') as HTMLElement,
-  copyBtn: () => $('copy-btn') as HTMLButtonElement,
-  resultPages: () => $('result-pages') as HTMLElement,
-  resultTime: () => $('result-time') as HTMLElement,
-  resultConfidence: () => $('result-confidence') as HTMLElement,
-  resultSize: () => $('result-size') as HTMLElement,
-  downloadBtn: () => $('download-btn') as HTMLButtonElement,
+  resultList: () => $('result-list') as HTMLElement,
+  downloadAllBtn: () => $('download-all-btn') as HTMLButtonElement,
   resetBtn: () => $('reset-btn') as HTMLButtonElement,
 
   // Offline

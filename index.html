@@ -25,12 +25,11 @@
             <div class="drop-icon">&#128196;</div>
             <p class="drop-text">Drop images or PDFs here, or click to browse</p>
             <p class="drop-hint">Supports PNG, JPG, TIFF, BMP, WebP, PDF</p>
-            <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp" hidden />
+            <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp" multiple hidden />
           </div>
           <div id="file-info" class="file-info hidden">
-            <span id="file-name" class="file-name"></span>
-            <span id="file-size" class="file-size"></span>
-            <button id="clear-file" class="icon-btn" title="Clear file">&times;</button>
+            <ul id="file-list" class="file-list"></ul>
+            <button id="clear-file" class="icon-btn" title="Clear files">&times;</button>
           </div>
         </section>
 
@@ -88,6 +87,7 @@
 
         <!-- Progress Section -->
         <section id="progress-section" class="progress-section hidden">
+          <div id="batch-status" class="batch-status hidden"></div>
           <div class="progress-header">
             <span id="progress-step" class="progress-step">Initializing...</span>
             <span id="progress-time" class="progress-time">0s</span>
@@ -103,24 +103,11 @@
 
         <!-- Results Section -->
         <section id="results-section" class="results-section hidden">
-          <!-- Image OCR result -->
-          <div id="image-result" class="image-result hidden">
-            <h2>Extracted Text</h2>
-            <pre id="ocr-text" class="ocr-text"></pre>
-            <button id="copy-btn" class="btn-primary">Copy to clipboard</button>
-          </div>
-          <!-- PDF OCR result -->
-          <div id="pdf-result" class="pdf-result hidden">
-            <h2>Searchable PDF Ready</h2>
-            <div class="result-stats">
-              <span id="result-pages"></span>
-              <span id="result-time"></span>
-              <span id="result-confidence"></span>
-              <span id="result-size"></span>
-            </div>
-            <button id="download-btn" class="btn-primary">Download Searchable PDF</button>
-          </div>
-          <button id="reset-btn" class="btn-secondary">Process another file</button>
+          <h2>Results</h2>
+          <!-- One result card is appended here per processed file -->
+          <div id="result-list" class="result-list"></div>
+          <button id="download-all-btn" class="btn-primary hidden">Download all PDFs</button>
+          <button id="reset-btn" class="btn-secondary">Process more files</button>
         </section>
       </main>
 
