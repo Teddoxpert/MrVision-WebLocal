@@ -9,19 +9,29 @@ import { ocrPdf, cancelPipeline } from './core/pdf-ocr.js';
 import { isCacheApiAvailable, getCacheStatus, prefetchAssets } from './core/offline-cache.js';
 import type { PdfOcrResult } from './core/pdf-ocr.js';
 
-let selectedFile: File | null = null;
-let pdfResult: PdfOcrResult | null = null;
+interface PdfDownload {
+  name: string;
+  bytes: Uint8Array;
+}
+
+let selectedFiles: File[] = [];
+let pdfDownloads: PdfDownload[] = [];
+// Set when the user cancels: stops the batch loop from starting the next file.
+let batchCancelled = false;
 
 function resetUI(): void {
-  selectedFile = null;
-  pdfResult = null;
+  selectedFiles = [];
+  pdfDownloads = [];
+  batchCancelled = false;
 
   hide(dom.fileInfo());
   hide(dom.optionsPanel());
   hide(dom.progressSection());
   hide(dom.resultsSection());
-  hide(dom.imageResult());
-  hide(dom.pdfResult());
+  hide(dom.batchStatus());
+  hide(dom.downloadAllBtn());
+  dom.fileList().innerHTML = '';
+  dom.resultList().innerHTML = '';
 
   dom.dropZone().querySelector('.drop-zone-content')!.classList.remove('hidden');
   dom.startBtn().disabled = false;
@@ -29,22 +39,43 @@ function resetUI(): void {
   document.title = 'MrVision';
 }
 
-function onFileSelected(file: File): void {
-  if (!isImageFile(file) && !isPdfFile(file)) {
-    alert('Unsupported file type. Please select an image or PDF.');
+function onFilesSelected(files: File[]): void {
+  const accepted = files.filter((f) => isImageFile(f) || isPdfFile(f));
+  const skipped = files.length - accepted.length;
+
+  if (accepted.length === 0) {
+    alert('Unsupported file type. Please select images or PDFs.');
     return;
   }
+  if (skipped > 0) {
+    alert(`${skipped} file(s) skipped — only images and PDFs are supported.`);
+  }
 
-  selectedFile = file;
+  selectedFiles = accepted;
 
-  // Show file info
-  dom.fileName().textContent = file.name;
-  dom.fileSize().textContent = formatFileSize(file.size);
+  // Show the list of selected files
+  const list = dom.fileList();
+  list.innerHTML = '';
+  for (const file of accepted) {
+    const li = document.createElement('li');
+    li.className = 'file-list-item';
+
+    const name = document.createElement('span');
+    name.className = 'file-name';
+    name.textContent = file.name;
+
+    const size = document.createElement('span');
+    size.className = 'file-size';
+    size.textContent = formatFileSize(file.size);
+
+    li.append(name, size);
+    list.appendChild(li);
+  }
   show(dom.fileInfo());
   dom.dropZone().querySelector('.drop-zone-content')!.classList.add('hidden');
 
-  // Show options (PDF-specific options only for PDFs)
-  showPdfOptions(isPdfFile(file));
+  // Show PDF-specific options if any selected file is a PDF
+  showPdfOptions(accepted.some(isPdfFile));
   show(dom.optionsPanel());
 
   // Hide previous results
@@ -53,98 +84,177 @@ function onFileSelected(file: File): void {
 }
 
 async function startOcr(): Promise<void> {
-  if (!selectedFile) return;
+  if (selectedFiles.length === 0) return;
 
   const options = getOptions();
+  const files = selectedFiles;
+  const multiple = files.length > 1;
+
+  pdfDownloads = [];
+  batchCancelled = false;
 
   // Transition UI
   hide(dom.optionsPanel());
   show(dom.progressSection());
-  hide(dom.resultsSection());
+  show(dom.resultsSection());
+  dom.resultList().innerHTML = '';
+  hide(dom.downloadAllBtn());
+  if (multiple) show(dom.batchStatus());
+  else hide(dom.batchStatus());
   dom.startBtn().disabled = true;
 
   const progress = createProgressCallback();
 
-  try {
-    if (isImageFile(selectedFile)) {
-      // Image OCR path
-      initProgress(1);
+  // Process each file sequentially. The OCR pipeline already saturates the
+  // worker pool for a single document, so running files one at a time keeps
+  // memory bounded while still getting through the whole batch.
+  for (let i = 0; i < files.length; i++) {
+    if (batchCancelled) break;
+    const file = files[i];
 
-      const text = await ocrImage(selectedFile, options.language, options.engine, progress, options.preprocess);
+    if (multiple) {
+      dom.batchStatus().textContent = `File ${i + 1} of ${files.length}: ${file.name}`;
+    }
 
-      stopTimer();
-      progress.onProgress(1, 1);
-
-      // Show image result
-      hide(dom.progressSection());
-      show(dom.resultsSection());
-      show(dom.imageResult());
-      hide(dom.pdfResult());
-      dom.ocrText().textContent = text;
-    } else if (isPdfFile(selectedFile)) {
-      // PDF OCR path
-      const fileBytes = await readFileAsArrayBuffer(selectedFile);
-      // We'll know page count after loading; init with 1 for now, pdf-ocr will update
-      initProgress(0);
-
-      const result = await ocrPdf(
-        fileBytes,
-        options,
-        {
+    try {
+      if (isImageFile(file)) {
+        initProgress(1);
+        const text = await ocrImage(file, options.language, options.engine, progress, options.preprocess);
+        progress.onProgress(1, 1);
+        addImageResult(file.name, text);
+      } else {
+        const fileBytes = await readFileAsArrayBuffer(file);
+        // Page count is unknown until the PDF loads; pdf-ocr re-inits the grid.
+        initProgress(0);
+        const result = await ocrPdf(fileBytes, options, {
           ...progress,
           onLog(msg: string) {
-            // Re-init page grid once we know page count
             const pageMatch = msg.match(/PDF loaded: (\d+) pages/);
             if (pageMatch) {
               initProgress(parseInt(pageMatch[1], 10));
             }
             progress.onLog(msg);
           },
-        },
-      );
-
-      pdfResult = result;
-      stopTimer();
-
-      // Show PDF result
-      hide(dom.progressSection());
-      show(dom.resultsSection());
-      hide(dom.imageResult());
-      show(dom.pdfResult());
-
-      dom.resultPages().textContent = `${result.pages} pages`;
-      dom.resultTime().textContent = formatElapsed(result.elapsedSeconds);
-      dom.resultConfidence().textContent = `${result.confidence.toFixed(1)}% confidence`;
-      dom.resultSize().textContent = formatFileSize(result.pdfBytes.length);
+        });
+        const outputName = file.name.replace(/\.pdf$/i, '') + '_OCR.pdf';
+        pdfDownloads.push({ name: outputName, bytes: result.pdfBytes });
+        addPdfResult(outputName, result);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Cancelled') {
+        progress.onLog(`Cancelled: ${file.name}`);
+        addErrorResult(file.name, 'Cancelled by user.');
+        batchCancelled = true; // stop the rest of the batch too
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        progress.onLog(`Error processing ${file.name}: ${msg}`);
+        addErrorResult(file.name, msg);
+      }
     }
-  } catch (err) {
-    stopTimer();
-    if (err instanceof Error && err.message === 'Cancelled') {
-      progress.onLog('Cancelled by user.');
-    } else {
-      progress.onLog(`Error: ${err instanceof Error ? err.message : err}`);
-    }
-    hide(dom.progressSection());
-    // Re-show options so user can retry
-    show(dom.optionsPanel());
-    dom.startBtn().disabled = false;
   }
+
+  stopTimer();
+  hide(dom.progressSection());
+  hide(dom.batchStatus());
+
+  // Offer a single click to grab every searchable PDF in the batch
+  if (pdfDownloads.length > 1) {
+    dom.downloadAllBtn().textContent = `Download all ${pdfDownloads.length} PDFs`;
+    show(dom.downloadAllBtn());
+  }
+
+  dom.startBtn().disabled = false;
 }
 
-function downloadResult(): void {
-  if (!pdfResult || !selectedFile) return;
-  const outputName = selectedFile.name.replace(/\.pdf$/i, '') + '_OCR.pdf';
-  downloadBlob(new Blob([pdfResult.pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }), outputName);
+function resultCardHeader(name: string, badgeText: string, badgeClass: string): HTMLElement {
+  const header = document.createElement('div');
+  header.className = 'result-card-header';
+
+  const nameEl = document.createElement('span');
+  nameEl.className = 'result-card-name';
+  nameEl.textContent = name;
+
+  const badge = document.createElement('span');
+  badge.className = `result-badge ${badgeClass}`;
+  badge.textContent = badgeText;
+
+  header.append(nameEl, badge);
+  return header;
 }
 
-function copyText(): void {
-  const text = dom.ocrText().textContent || '';
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = dom.copyBtn();
-    const orig = btn.textContent;
-    btn.textContent = 'Copied!';
-    setTimeout(() => (btn.textContent = orig), 1500);
+function addPdfResult(name: string, result: PdfOcrResult): void {
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.appendChild(resultCardHeader(name, 'Done', 'success'));
+
+  const stats = document.createElement('div');
+  stats.className = 'result-stats';
+  for (const text of [
+    `${result.pages} pages`,
+    formatElapsed(result.elapsedSeconds),
+    `${result.confidence.toFixed(1)}% confidence`,
+    formatFileSize(result.pdfBytes.length),
+  ]) {
+    const span = document.createElement('span');
+    span.textContent = text;
+    stats.appendChild(span);
+  }
+  card.appendChild(stats);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.textContent = 'Download Searchable PDF';
+  const bytes = result.pdfBytes;
+  btn.addEventListener('click', () => {
+    downloadBlob(new Blob([bytes as BlobPart], { type: 'application/pdf' }), name);
   });
+  card.appendChild(btn);
+
+  dom.resultList().appendChild(card);
+}
+
+function addImageResult(name: string, text: string): void {
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.appendChild(resultCardHeader(name, 'Done', 'success'));
+
+  const pre = document.createElement('pre');
+  pre.className = 'ocr-text';
+  pre.textContent = text;
+  card.appendChild(pre);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.textContent = 'Copy to clipboard';
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => (btn.textContent = orig), 1500);
+    });
+  });
+  card.appendChild(btn);
+
+  dom.resultList().appendChild(card);
+}
+
+function addErrorResult(name: string, message: string): void {
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.appendChild(resultCardHeader(name, 'Failed', 'error'));
+
+  const err = document.createElement('div');
+  err.className = 'result-error';
+  err.textContent = message;
+  card.appendChild(err);
+
+  dom.resultList().appendChild(card);
+}
+
+function downloadAll(): void {
+  for (const dl of pdfDownloads) {
+    downloadBlob(new Blob([dl.bytes as BlobPart], { type: 'application/pdf' }), dl.name);
+  }
 }
 
 // Wire up event handlers
@@ -166,8 +276,8 @@ function init(): void {
 
   // File input change
   fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files[0]) {
-      onFileSelected(fileInput.files[0]);
+    if (fileInput.files && fileInput.files.length > 0) {
+      onFilesSelected(Array.from(fileInput.files));
     }
   });
 
@@ -182,8 +292,8 @@ function init(): void {
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
-    if (e.dataTransfer?.files[0]) {
-      onFileSelected(e.dataTransfer.files[0]);
+    if (e.dataTransfer?.files.length) {
+      onFilesSelected(Array.from(e.dataTransfer.files));
     }
   });
 
@@ -191,13 +301,14 @@ function init(): void {
   document.addEventListener('paste', (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
+    const files: File[] = [];
     for (const item of items) {
       if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file) onFileSelected(file);
-        break;
+        if (file) files.push(file);
       }
     }
+    if (files.length) onFilesSelected(files);
   });
 
   // Clear file
@@ -210,16 +321,14 @@ function init(): void {
   // Start OCR
   dom.startBtn().addEventListener('click', startOcr);
 
-  // Cancel
+  // Cancel — stop the current file and the rest of the batch
   dom.cancelBtn().addEventListener('click', () => {
+    batchCancelled = true;
     cancelPipeline();
   });
 
-  // Download
-  dom.downloadBtn().addEventListener('click', downloadResult);
-
-  // Copy text
-  dom.copyBtn().addEventListener('click', copyText);
+  // Download all PDFs in the batch
+  dom.downloadAllBtn().addEventListener('click', downloadAll);
 
   // Reset
   dom.resetBtn().addEventListener('click', () => {

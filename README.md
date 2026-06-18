@@ -6,6 +6,7 @@ Client-side OCR for images and PDFs. Runs entirely in your browser — files nev
 
 - **Image OCR** — drop an image, get extracted text
 - **PDF OCR** — drop a scanned PDF, get a searchable/selectable PDF back
+- **Batch processing** — drop or select multiple files at once; each is OCR'd in turn with its own download
 - **Parallel processing** — uses all CPU cores via Web Workers (desktop)
 - **Mobile support** — memory-safe single-page processing on iPhone/iPad/Android
 - **Dark/light theme**
